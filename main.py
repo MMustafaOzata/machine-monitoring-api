@@ -195,5 +195,41 @@ def history():
 
     cursor.close()
     conn.close()
+    @app.get("/init-db")
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS raw_sensor_data (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        temperature_c FLOAT NOT NULL,
+        pressure_bar FLOAT NOT NULL,
+        vibration_level FLOAT NOT NULL,
+        sound_db FLOAT NOT NULL,
+        humidity_percent FLOAT NOT NULL,
+        load_percentage FLOAT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS predictions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        raw_data_id INT,
+        model_name VARCHAR(100),
+        prediction INT NOT NULL,
+        status VARCHAR(20),
+        probability FLOAT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (raw_data_id) REFERENCES raw_sensor_data(id)
+    )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"message": "Tables created successfully"}
 
     return results
