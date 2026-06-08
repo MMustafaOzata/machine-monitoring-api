@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import pandas as pd
 import joblib
 import mysql.connector
 import os
+import io
+import csv
 
 app = FastAPI(title="Machine Monitoring API")
 
@@ -56,44 +59,6 @@ def home():
     return {"message": "Machine Monitoring API is running"}
 
 
-@app.get("/init-db")
-def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS raw_sensor_data (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        temperature_c FLOAT NOT NULL,
-        pressure_bar FLOAT NOT NULL,
-        vibration_level FLOAT NOT NULL,
-        sound_db FLOAT NOT NULL,
-        humidity_percent FLOAT NOT NULL,
-        load_percentage FLOAT DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS predictions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        raw_data_id INT,
-        model_name VARCHAR(100),
-        prediction INT NOT NULL,
-        status VARCHAR(20),
-        probability FLOAT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (raw_data_id) REFERENCES raw_sensor_data(id)
-    )
-    """)
-
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    return {"message": "Tables created successfully"}
-
-
 @app.post("/predict")
 def predict(data: SensorData):
     load_percentage = 0.0
@@ -108,6 +73,7 @@ def predict(data: SensorData):
     }])
 
     input_scaled = scaler.transform(input_df[feature_cols])
+
     probability = model.predict_proba(input_scaled)[0][1]
 
     prediction = 1 if probability >= THRESHOLD else 0
@@ -234,3 +200,90 @@ def history():
     conn.close()
 
     return results
+
+
+@app.get("/dataset")
+def dataset():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+    SELECT 
+        r.temperature_c,
+        r.pressure_bar,
+        r.vibration_level,
+        r.sound_db,
+        r.humidity_percent,
+        r.load_percentage,
+        p.prediction AS target,
+        p.status,
+        p.probability,
+        r.created_at
+    FROM raw_sensor_data r
+    LEFT JOIN predictions p ON r.id = p.raw_data_id
+    ORDER BY r.id ASC
+    """
+
+    cursor.execute(query)
+    results = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return results
+
+
+@app.get("/dataset-csv")
+def dataset_csv():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+    SELECT 
+        r.temperature_c,
+        r.pressure_bar,
+        r.vibration_level,
+        r.sound_db,
+        r.humidity_percent,
+        r.load_percentage,
+        p.prediction AS target,
+        p.status,
+        p.probability,
+        r.created_at
+    FROM raw_sensor_data r
+    LEFT JOIN predictions p ON r.id = p.raw_data_id
+    ORDER BY r.id ASC
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    output = io.StringIO()
+
+    fieldnames = [
+        "temperature_c",
+        "pressure_bar",
+        "vibration_level",
+        "sound_db",
+        "humidity_percent",
+        "load_percentage",
+        "target",
+        "status",
+        "probability",
+        "created_at"
+    ]
+
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sensor_dataset.csv"}
+    )
