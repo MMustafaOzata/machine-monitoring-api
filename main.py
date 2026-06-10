@@ -59,9 +59,47 @@ def home():
     return {"message": "Machine Monitoring API is running"}
 
 
+@app.get("/init-db")
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS raw_sensor_data (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        temperature_c FLOAT NOT NULL,
+        pressure_bar FLOAT NOT NULL,
+        vibration_level FLOAT NOT NULL,
+        sound_db FLOAT NOT NULL,
+        humidity_percent FLOAT NOT NULL,
+        load_percentage FLOAT DEFAULT 50,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS predictions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        raw_data_id INT,
+        model_name VARCHAR(100),
+        prediction INT NOT NULL,
+        status VARCHAR(20),
+        probability FLOAT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (raw_data_id) REFERENCES raw_sensor_data(id)
+    )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"message": "Tables created successfully"}
+
+
 @app.post("/predict")
 def predict(data: SensorData):
-    load_percentage = 0.0
+    load_percentage = 50.0
 
     input_df = pd.DataFrame([{
         "Temperature_C": data.temperature_c,
@@ -73,7 +111,6 @@ def predict(data: SensorData):
     }])
 
     input_scaled = scaler.transform(input_df[feature_cols])
-
     probability = model.predict_proba(input_scaled)[0][1]
 
     prediction = 1 if probability >= THRESHOLD else 0
@@ -131,7 +168,8 @@ def predict(data: SensorData):
         "pressure_bar": data.pressure_bar,
         "vibration_level": data.vibration_level,
         "sound_db": data.sound_db,
-        "humidity_percent": data.humidity_pct
+        "humidity_percent": data.humidity_pct,
+        "load_percentage": load_percentage
     }
 
 
@@ -148,6 +186,7 @@ def latest():
         r.vibration_level,
         r.sound_db,
         r.humidity_percent,
+        r.load_percentage,
         r.created_at,
         p.model_name,
         p.prediction,
@@ -181,6 +220,7 @@ def history():
         r.vibration_level,
         r.sound_db,
         r.humidity_percent,
+        r.load_percentage,
         r.created_at,
         p.model_name,
         p.prediction,
