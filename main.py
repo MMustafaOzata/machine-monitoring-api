@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import pandas as pd
 import joblib
-import mysql.connector
+import pymysql
 import os
 import io
 import csv
