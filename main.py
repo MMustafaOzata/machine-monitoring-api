@@ -30,7 +30,7 @@ DB_CONFIG = {
 scaler = joblib.load("scaler.pkl")
 model = joblib.load("logistic_model.pkl")
 
-THRESHOLD = 0.30
+THRESHOLD = 0.65
 
 feature_cols = [
     "Temperature_C",
