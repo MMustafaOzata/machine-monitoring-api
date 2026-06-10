@@ -51,22 +51,20 @@ class SensorData(BaseModel):
 
 
 def get_db_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    return pymysql.connect(
+        host=DB_CONFIG["host"],
+        user=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+        database=DB_CONFIG["database"],
+        port=DB_CONFIG["port"],
+        cursorclass=pymysql.cursors.DictCursor,
+        ssl={"ssl": {}}
+    )
 
 
 @app.get("/")
 def home():
     return {"message": "Machine Monitoring API is running"}
-
-@app.get("/debug-db")
-def debug_db():
-    return {
-        "DB_HOST": os.getenv("DB_HOST"),
-        "DB_NAME": os.getenv("DB_NAME"),
-        "DB_PORT": os.getenv("DB_PORT"),
-        "DB_USER": os.getenv("DB_USER"),
-        "DB_PASSWORD_SET": os.getenv("DB_PASSWORD") is not None
-    }
 
 
 @app.get("/init-db")
@@ -107,39 +105,6 @@ def init_db():
     return {"message": "Tables created successfully"}
 
 
-@app.get("/fix-db")
-def fix_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    messages = []
-
-    try:
-        cursor.execute("""
-        ALTER TABLE raw_sensor_data
-        ADD COLUMN load_percentage FLOAT DEFAULT 50
-        """)
-        messages.append("load_percentage column added")
-    except Exception as e:
-        messages.append("load_percentage check: " + str(e))
-
-    try:
-        cursor.execute("""
-        UPDATE raw_sensor_data
-        SET load_percentage = 50
-        WHERE load_percentage IS NULL
-        """)
-        messages.append("NULL load_percentage values updated to 50")
-    except Exception as e:
-        messages.append("update check: " + str(e))
-
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    return {"messages": messages}
-
-
 @app.post("/predict")
 def predict(data: SensorData):
     load_percentage = 50.0
@@ -162,39 +127,32 @@ def predict(data: SensorData):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    insert_raw = """
+    cursor.execute("""
     INSERT INTO raw_sensor_data
     (temperature_c, pressure_bar, vibration_level, sound_db, humidity_percent, load_percentage)
     VALUES (%s, %s, %s, %s, %s, %s)
-    """
-
-    raw_values = (
+    """, (
         data.temperature_c,
         data.pressure_bar,
         data.vibration_level,
         data.sound_db,
         data.humidity_pct,
         load_percentage
-    )
+    ))
 
-    cursor.execute(insert_raw, raw_values)
     raw_data_id = cursor.lastrowid
 
-    insert_prediction = """
+    cursor.execute("""
     INSERT INTO predictions
     (raw_data_id, model_name, prediction, status, probability)
     VALUES (%s, %s, %s, %s, %s)
-    """
-
-    prediction_values = (
+    """, (
         raw_data_id,
         "Logistic Regression",
         prediction,
         status,
         float(probability)
-    )
-
-    cursor.execute(insert_prediction, prediction_values)
+    ))
 
     conn.commit()
     cursor.close()
@@ -219,9 +177,9 @@ def predict(data: SensorData):
 @app.get("/latest")
 def latest():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
-    query = """
+    cursor.execute("""
     SELECT
         r.id,
         r.temperature_c,
@@ -239,9 +197,8 @@ def latest():
     LEFT JOIN predictions p ON r.id = p.raw_data_id
     ORDER BY r.id DESC
     LIMIT 1
-    """
+    """)
 
-    cursor.execute(query)
     result = cursor.fetchone()
 
     cursor.close()
@@ -253,9 +210,9 @@ def latest():
 @app.get("/history")
 def history():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
-    query = """
+    cursor.execute("""
     SELECT
         r.id,
         r.temperature_c,
@@ -274,9 +231,8 @@ def history():
     WHERE p.status = 'FAULT'
     ORDER BY r.id DESC
     LIMIT 50
-    """
+    """)
 
-    cursor.execute(query)
     results = cursor.fetchall()
 
     cursor.close()
@@ -288,9 +244,9 @@ def history():
 @app.get("/dataset")
 def dataset():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
-    query = """
+    cursor.execute("""
     SELECT 
         r.temperature_c,
         r.pressure_bar,
@@ -305,9 +261,8 @@ def dataset():
     FROM raw_sensor_data r
     LEFT JOIN predictions p ON r.id = p.raw_data_id
     ORDER BY r.id ASC
-    """
+    """)
 
-    cursor.execute(query)
     results = cursor.fetchall()
 
     cursor.close()
@@ -319,9 +274,9 @@ def dataset():
 @app.get("/dataset-csv")
 def dataset_csv():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
-    query = """
+    cursor.execute("""
     SELECT 
         r.temperature_c,
         r.pressure_bar,
@@ -336,9 +291,8 @@ def dataset_csv():
     FROM raw_sensor_data r
     LEFT JOIN predictions p ON r.id = p.raw_data_id
     ORDER BY r.id ASC
-    """
+    """)
 
-    cursor.execute(query)
     rows = cursor.fetchall()
 
     cursor.close()
