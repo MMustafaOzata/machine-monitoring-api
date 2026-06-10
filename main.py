@@ -1,16 +1,29 @@
+# Import FastAPI tools
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+
+# Import data validation model
 from pydantic import BaseModel
+
+# Import data and ML libraries
 import pandas as pd
 import joblib
+
+# Import MySQL connection library
 import pymysql
+
+# Import system and file libraries
 import os
 import io
 import csv
 
+
+# Create FastAPI application
 app = FastAPI(title="Machine Monitoring API")
 
+
+# Allow requests from frontend dashboard
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,6 +32,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Database connection information
+# These values come from Render environment variables
 DB_CONFIG = {
     "host": os.getenv("DB_HOST"),
     "user": os.getenv("DB_USER"),
@@ -27,11 +43,17 @@ DB_CONFIG = {
     "port": int(os.getenv("DB_PORT", 3306))
 }
 
+
+# Load trained scaler and machine learning model
 scaler = joblib.load("scaler.pkl")
 model = joblib.load("logistic_model.pkl")
 
+
+# Threshold value for fault prediction
 THRESHOLD = 0.5
 
+
+# Features used by the trained machine learning model
 feature_cols = [
     "Temperature_C",
     "Pressure_bar",
@@ -42,6 +64,7 @@ feature_cols = [
 ]
 
 
+# Input data format for sensor values
 class SensorData(BaseModel):
     temperature_c: float
     pressure_bar: float
@@ -50,6 +73,7 @@ class SensorData(BaseModel):
     humidity_pct: float
 
 
+# Create database connection
 def get_db_connection():
     return pymysql.connect(
         host=DB_CONFIG["host"],
@@ -62,16 +86,19 @@ def get_db_connection():
     )
 
 
+# Simple home endpoint
 @app.get("/")
 def home():
     return {"message": "Machine Monitoring API is running"}
 
 
+# Create database tables if they do not exist
 @app.get("/init-db")
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # This table stores raw sensor values
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS raw_sensor_data (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -85,6 +112,7 @@ def init_db():
     )
     """)
 
+    # This table stores prediction results
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS predictions (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -105,6 +133,8 @@ def init_db():
     return {"message": "Tables created successfully"}
 
 
+# Clear all records from database
+# This endpoint is used only for testing and demo preparation
 @app.get("/clear-db")
 def clear_db():
     conn = get_db_connection()
@@ -128,16 +158,22 @@ def clear_db():
     }
 
 
+# Main prediction endpoint
 @app.post("/predict")
 def predict(data: SensorData):
 
+    # Convert prototype sensor values to industrial working ranges
     temperature = data.temperature_c + 35
     pressure = data.pressure_bar
     vibration = data.vibration_level * 15
     sound = data.sound_db + 25
     humidity = data.humidity_pct
+
+    # Load Percentage is not measured by physical sensor
+    # So we use a fixed value for model compatibility
     load_percentage = 50.0
 
+    # Prepare input data for the ML model
     input_df = pd.DataFrame([{
         "Temperature_C": temperature,
         "Pressure_bar": pressure,
@@ -147,11 +183,16 @@ def predict(data: SensorData):
         "Load_Percentage": load_percentage
     }])
 
+    # Apply the same scaler used during training
     input_scaled = scaler.transform(input_df[feature_cols])
+
+    # Get fault probability from Logistic Regression model
     probability = model.predict_proba(input_scaled)[0][1]
 
+    # Convert probability into class using threshold
     model_prediction = 1 if probability >= THRESHOLD else 0
 
+    # Extra safety rule for very risky sensor values
     rule_fault = (
         temperature >= 90 or
         pressure >= 220 or
@@ -160,6 +201,7 @@ def predict(data: SensorData):
         humidity >= 85
     )
 
+    # Final decision
     if rule_fault:
         prediction = 1
         status = "FAULT"
@@ -169,9 +211,11 @@ def predict(data: SensorData):
         status = "FAULT" if prediction == 1 else "NORMAL"
         decision_source = "Logistic Regression Model"
 
+    # Save sensor values and prediction result to MySQL
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # Insert raw sensor data
     cursor.execute("""
     INSERT INTO raw_sensor_data
     (temperature_c, pressure_bar, vibration_level, sound_db, humidity_percent, load_percentage)
@@ -187,6 +231,7 @@ def predict(data: SensorData):
 
     raw_data_id = cursor.lastrowid
 
+    # Insert prediction result
     cursor.execute("""
     INSERT INTO predictions
     (raw_data_id, model_name, prediction, status, probability)
@@ -203,6 +248,7 @@ def predict(data: SensorData):
     cursor.close()
     conn.close()
 
+    # Return prediction result to dashboard
     return {
         "id": raw_data_id,
         "model": "Logistic Regression + Rule Check",
@@ -228,6 +274,7 @@ def predict(data: SensorData):
     }
 
 
+# Get the latest sensor data and prediction
 @app.get("/latest")
 def latest():
     conn = get_db_connection()
@@ -261,6 +308,7 @@ def latest():
     return result
 
 
+# Get last 50 fault records
 @app.get("/history")
 def history():
     conn = get_db_connection()
@@ -295,6 +343,7 @@ def history():
     return results
 
 
+# Get all stored data as JSON
 @app.get("/dataset")
 def dataset():
     conn = get_db_connection()
@@ -325,6 +374,7 @@ def dataset():
     return results
 
 
+# Export stored data as CSV file
 @app.get("/dataset-csv")
 def dataset_csv():
     conn = get_db_connection()
