@@ -121,8 +121,24 @@ def predict(data: SensorData):
     input_scaled = scaler.transform(input_df[feature_cols])
     probability = model.predict_proba(input_scaled)[0][1]
 
-    prediction = 1 if probability >= THRESHOLD else 0
-    status = "FAULT" if prediction == 1 else "NORMAL"
+    model_prediction = 1 if probability >= THRESHOLD else 0
+
+    rule_fault = (
+        data.temperature_c >= 90 or
+        data.pressure_bar >= 220 or
+        data.vibration_level >= 8 or
+        data.sound_db >= 90 or
+        data.humidity_pct >= 85
+    )
+
+    if rule_fault:
+        prediction = 1
+        status = "FAULT"
+        decision_source = "Rule-Based Safety Check"
+    else:
+        prediction = model_prediction
+        status = "FAULT" if prediction == 1 else "NORMAL"
+        decision_source = "Logistic Regression Model"
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -148,7 +164,7 @@ def predict(data: SensorData):
     VALUES (%s, %s, %s, %s, %s)
     """, (
         raw_data_id,
-        "Logistic Regression",
+        "Logistic Regression + Rule Check",
         prediction,
         status,
         float(probability)
@@ -160,7 +176,8 @@ def predict(data: SensorData):
 
     return {
         "id": raw_data_id,
-        "model": "Logistic Regression",
+        "model": "Logistic Regression + Rule Check",
+        "decision_source": decision_source,
         "threshold": THRESHOLD,
         "probability": round(float(probability), 4),
         "prediction": prediction,
