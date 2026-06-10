@@ -108,12 +108,12 @@ def init_db():
 @app.post("/predict")
 def predict(data: SensorData):
 
+    # Convert prototype sensor values to industrial operating ranges
     temperature = data.temperature_c + 35
     pressure = data.pressure_bar
     vibration = data.vibration_level * 15
     sound = data.sound_db + 25
     humidity = data.humidity_pct
-
     load_percentage = 50.0
 
     input_df = pd.DataFrame([{
@@ -124,16 +124,18 @@ def predict(data: SensorData):
         "Humidity_%": humidity,
         "Load_Percentage": load_percentage
     }])
+
+    input_scaled = scaler.transform(input_df[feature_cols])
     probability = model.predict_proba(input_scaled)[0][1]
 
     model_prediction = 1 if probability >= THRESHOLD else 0
 
     rule_fault = (
-        data.temperature_c >= 90 or
-        data.pressure_bar >= 220 or
-        data.vibration_level >= 8 or
-        data.sound_db >= 90 or
-        data.humidity_pct >= 85
+        temperature >= 90 or
+        pressure >= 220 or
+        vibration >= 8 or
+        sound >= 90 or
+        humidity >= 85
     )
 
     if rule_fault:
@@ -192,7 +194,15 @@ def predict(data: SensorData):
         "vibration_level": data.vibration_level,
         "sound_db": data.sound_db,
         "humidity_percent": data.humidity_pct,
-        "load_percentage": load_percentage
+        "load_percentage": load_percentage,
+        "model_input_values": {
+            "Temperature_C": temperature,
+            "Pressure_bar": pressure,
+            "Vibration_Level": vibration,
+            "Sound_dB": sound,
+            "Humidity_%": humidity,
+            "Load_Percentage": load_percentage
+        }
     }
 
 
