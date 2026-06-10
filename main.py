@@ -107,18 +107,23 @@ def init_db():
 
 @app.post("/predict")
 def predict(data: SensorData):
+
+    temperature = data.temperature_c + 35
+    pressure = data.pressure_bar
+    vibration = data.vibration_level * 15
+    sound = data.sound_db + 25
+    humidity = data.humidity_pct
+
     load_percentage = 50.0
 
     input_df = pd.DataFrame([{
-        "Temperature_C": data.temperature_c,
-        "Pressure_bar": data.pressure_bar,
-        "Vibration_Level": data.vibration_level,
-        "Sound_dB": data.sound_db,
-        "Humidity_%": data.humidity_pct,
+        "Temperature_C": temperature,
+        "Pressure_bar": pressure,
+        "Vibration_Level": vibration,
+        "Sound_dB": sound,
+        "Humidity_%": humidity,
         "Load_Percentage": load_percentage
     }])
-
-    input_scaled = scaler.transform(input_df[feature_cols])
     probability = model.predict_proba(input_scaled)[0][1]
 
     model_prediction = 1 if probability >= THRESHOLD else 0
