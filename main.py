@@ -97,6 +97,39 @@ def init_db():
     return {"message": "Tables created successfully"}
 
 
+@app.get("/fix-db")
+def fix_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    messages = []
+
+    try:
+        cursor.execute("""
+        ALTER TABLE raw_sensor_data
+        ADD COLUMN load_percentage FLOAT DEFAULT 50
+        """)
+        messages.append("load_percentage column added")
+    except Exception as e:
+        messages.append("load_percentage check: " + str(e))
+
+    try:
+        cursor.execute("""
+        UPDATE raw_sensor_data
+        SET load_percentage = 50
+        WHERE load_percentage IS NULL
+        """)
+        messages.append("NULL load_percentage values updated to 50")
+    except Exception as e:
+        messages.append("update check: " + str(e))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"messages": messages}
+
+
 @app.post("/predict")
 def predict(data: SensorData):
     load_percentage = 50.0
